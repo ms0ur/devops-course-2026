@@ -79,6 +79,32 @@ fi
 check "Права сайта и TLS-ключа безопасны" "yes" "$permissions_ok"
 
 
+echo "[5] Контейнеризация"
+
+# 1. Docker Engine работает
+check "Служба Docker активна" "active" "$(systemctl is-active docker)"
+
+# 2. PostgreSQL находится в состоянии healthy
+db_container="$(docker compose -f "$HOME/app/docker-compose.yml" ps -q db 2>/dev/null || true)"
+db_health="unavailable"
+
+if [[ -n "$db_container" ]]; then
+    db_health="$(docker inspect -f '{{.State.Health.Status}}' "$db_container" 2>/dev/null || echo unavailable)"
+fi
+
+check "PostgreSQL healthy" "healthy" "$db_health"
+
+# 3. Порты 5000 и 5432 не слушают на внешних адресах
+bad_ports="$(sudo ss -H -ltn | awk '$4 ~ /:(5000|5432)$/ && $4 !~ /^127\.0\.0\.1:(5000|5432)$/ {print $4}')"
+
+check "Порты 5000 и 5432 не опубликованы наружу" "" "$bad_ports"
+
+# 4. Секретный файл доступен только владельцу
+env_permissions="$(stat -c '%a' "$HOME/app/.env" 2>/dev/null || true)"
+
+check "Права файла .env" "600" "$env_permissions"
+
+
 echo "Пройдено: $PASS, не пройдено: $FAIL"
 
 [[ $FAIL -eq 0 ]] && exit 0 || exit 1
